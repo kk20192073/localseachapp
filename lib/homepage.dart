@@ -1,4 +1,7 @@
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'api.dart';
 import 'store.dart';
 import 'reviewpage.dart';
@@ -34,18 +37,75 @@ class _HomepageState extends State<Homepage> {
       return;
     }
 
-    print('Searching for: $trimmedQuery');
+    debugPrint('Searching for: $trimmedQuery');
 
     try {
       final results = await apiService.searchLocal(trimmedQuery);
-      print('Found ${results.length} results');
+      debugPrint('Found ${results.length} results');
 
       setState(() {
         searchResults = results.map((json) => Store.fromJson(json)).toList();
       });
     } catch (e) {
-      print('Error fetching results: $e');
+      debugPrint('Error fetching results: $e');
       setState(() => searchResults = []);
+    }
+  }
+
+  Future<void> searchByCurrentLocation() async {
+    try {
+      LocationPermission permission = await Geolocator.checkPermission();
+
+      if (permission == LocationPermission.denied) {
+        try {
+          permission = await Geolocator.requestPermission();
+        } on PermissionRequestInProgressException {
+          debugPrint('⚠️ 위치 권한 요청 중입니다. 잠시 후 다시 시도하세요.');
+          return;
+        }
+
+        if (permission == LocationPermission.denied) {
+          debugPrint('위치 권한이 거부되었습니다.');
+          return;
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        debugPrint('위치 권한이 영구적으로 거부되었습니다. 설정에서 권한을 허용해야 합니다.');
+        return;
+      }
+
+      double lat = 37.497942;
+      double lon = 127.027621;
+
+      const vworldKey = '99C77382-1779-3E6A-A623-868430D6EF9F';
+      final vworldUrl = Uri.parse(
+        'https://api.vworld.kr/req/address?service=address&request=getAddress'
+        '&key=$vworldKey&point=$lon,$lat&type=BOTH&format=json',
+      );
+
+      final res = await http.get(vworldUrl);
+      if (res.statusCode == 200) {
+        final json = res.body;
+        debugPrint('💬 VWORLD 응답 본문: $json');
+        final data = jsonDecode(json);
+        final resultsList = data['response']?['result'];
+        if (resultsList != null && resultsList.isNotEmpty) {
+          final address = resultsList[0]['text'];
+          final results = await apiService.searchLocal(address);
+          setState(() {
+            searchResults = results
+                .map((json) => Store.fromJson(json))
+                .toList();
+          });
+        } else {
+          debugPrint('VWORLD 응답에 주소 결과가 없습니다.');
+        }
+      } else {
+        debugPrint('VWORLD API 실패: ${res.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('위치 기반 검색 오류: $e');
     }
   }
 
@@ -84,6 +144,15 @@ class _HomepageState extends State<Homepage> {
             ),
           ),
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.gps_fixed),
+            tooltip: '현재 위치로 검색',
+            onPressed: () {
+              searchByCurrentLocation();
+            },
+          ),
+        ],
       ),
       body: searchResults.isEmpty
           ? const SizedBox.shrink()
