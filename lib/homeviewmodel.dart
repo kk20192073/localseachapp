@@ -21,12 +21,14 @@ class HomeViewModel extends Notifier<List<Store>> {
         permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied) {
           debugPrint('위치 권한이 거부되었습니다.');
+          state = [];
           return;
         }
       }
 
       if (permission == LocationPermission.deniedForever) {
         debugPrint('위치 권한이 영구적으로 거부되었습니다. 설정에서 권한을 허용해야 합니다.');
+        state = [];
         return;
       }
 
@@ -49,16 +51,19 @@ class HomeViewModel extends Notifier<List<Store>> {
       final resultsList = vworldJson['response']?['result'];
       if (resultsList == null || resultsList.isEmpty) {
         debugPrint('VWORLD 응답에 주소 결과가 없습니다.');
+        state = [];
         return;
       }
 
       final address = resultsList[0]['text'];
+      debugPrint('VWORLD 주소: $address');
 
       const naverClientId = 'CPqLZ5WMXtR9h3kfF2ux';
       const naverClientSecret = 'ib6uLDYoo5';
 
+      final encodedAddress = Uri.encodeComponent(address);
       final naverUrl = Uri.parse(
-        'https://openapi.naver.com/v1/search/local.json?query=$address',
+        'https://openapi.naver.com/v1/search/local.json?query=$encodedAddress',
       );
 
       final naverRes = await http.get(
@@ -83,6 +88,91 @@ class HomeViewModel extends Notifier<List<Store>> {
     } catch (e, stacktrace) {
       debugPrint('getAddressAndSearch error: $e');
       debugPrint('Stacktrace: $stacktrace');
+    }
+  }
+
+  Future<void> searchByCoordinates(double lat, double lon) async {
+    try {
+      const vworldKey = '99C77382-1779-3E6A-A623-868430D6EF9F';
+
+      final vworldUrl = Uri.parse(
+        'https://api.vworld.kr/req/address?service=address&request=getAddress&key=$vworldKey&point=$lon,$lat&type=BOTH&format=json',
+      );
+
+      final vworldRes = await http.get(vworldUrl);
+      final vworldJson = jsonDecode(vworldRes.body);
+
+      final resultsList = vworldJson['response']?['result'];
+      if (resultsList == null || resultsList.isEmpty) {
+        debugPrint('VWORLD 응답에 주소 결과가 없습니다.');
+        state = [];
+        return;
+      }
+
+      final address = resultsList[0]['text'];
+      debugPrint('VWORLD 주소 (coordinates): $address');
+
+      const naverClientId = 'CPqLZ5WMXtR9h3kfF2ux';
+      const naverClientSecret = 'ib6uLDYoo5';
+
+      final encodedAddress = Uri.encodeComponent(address);
+      final naverUrl = Uri.parse(
+        'https://openapi.naver.com/v1/search/local.json?query=$encodedAddress',
+      );
+
+      final naverRes = await http.get(
+        naverUrl,
+        headers: {
+          'X-Naver-Client-Id': naverClientId,
+          'X-Naver-Client-Secret': naverClientSecret,
+        },
+      );
+
+      if (naverRes.statusCode == 200) {
+        final naverJson = jsonDecode(naverRes.body);
+        final items = naverJson['items'] as List<dynamic>;
+        final stores = items.map((json) => Store.fromJson(json)).toList();
+        state = stores;
+        debugPrint(
+          'searchByCoordinates: state updated with ${state.length} items',
+        );
+      } else {
+        throw Exception('네이버 API 오류: ${naverRes.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('searchByCoordinates error: $e');
+    }
+  }
+
+  Future<void> searchByAddress(String address) async {
+    try {
+      const naverClientId = 'CPqLZ5WMXtR9h3kfF2ux';
+      const naverClientSecret = 'ib6uLDYoo5';
+
+      final encodedAddress = Uri.encodeComponent(address);
+      final naverUrl = Uri.parse(
+        'https://openapi.naver.com/v1/search/local.json?query=$encodedAddress',
+      );
+
+      final naverRes = await http.get(
+        naverUrl,
+        headers: {
+          'X-Naver-Client-Id': naverClientId,
+          'X-Naver-Client-Secret': naverClientSecret,
+        },
+      );
+
+      if (naverRes.statusCode == 200) {
+        final naverJson = jsonDecode(naverRes.body);
+        final items = naverJson['items'] as List<dynamic>;
+        final stores = items.map((json) => Store.fromJson(json)).toList();
+        state = stores;
+        debugPrint('searchByAddress: state updated with ${state.length} items');
+      } else {
+        throw Exception('네이버 API 오류: ${naverRes.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('searchByAddress error: $e');
     }
   }
 }
