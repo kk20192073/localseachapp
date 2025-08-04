@@ -40,7 +40,7 @@ class _HomepageState extends State<Homepage> {
     debugPrint('Searching for: $trimmedQuery');
 
     try {
-      final results = await apiService.searchLocal(trimmedQuery);
+      final List<dynamic> results = await apiService.searchLocal(trimmedQuery);
       debugPrint('Found ${results.length} results');
 
       setState(() {
@@ -66,17 +66,22 @@ class _HomepageState extends State<Homepage> {
 
         if (permission == LocationPermission.denied) {
           debugPrint('위치 권한이 거부되었습니다.');
+          setState(() => searchResults = []);
           return;
         }
       }
 
       if (permission == LocationPermission.deniedForever) {
         debugPrint('위치 권한이 영구적으로 거부되었습니다. 설정에서 권한을 허용해야 합니다.');
+        setState(() => searchResults = []);
         return;
       }
 
-      double lat = 37.497942;
-      double lon = 127.027621;
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      double lat = position.latitude;
+      double lon = position.longitude;
 
       const vworldKey = '99C77382-1779-3E6A-A623-868430D6EF9F';
       final vworldUrl = Uri.parse(
@@ -91,8 +96,21 @@ class _HomepageState extends State<Homepage> {
         final data = jsonDecode(json);
         final resultsList = data['response']?['result'];
         if (resultsList != null && resultsList.isNotEmpty) {
-          final address = resultsList[0]['text'];
-          final results = await apiService.searchLocal(address);
+          final result = resultsList[0];
+          final structure = result['structure'] ?? {};
+
+          final level1 = structure['level1'] ?? '';
+          final level2 = structure['level2'] ?? '';
+          final level4L = structure['level4L'] ?? '';
+
+          final simpleAddress = '$level1 $level2 $level4L'.trim();
+
+          debugPrint('📍 현재 위치 주소: $simpleAddress');
+
+          final results = await apiService.searchLocal(simpleAddress);
+          if (results.isEmpty) {
+            debugPrint('❌ 주소로 검색된 결과가 없습니다.');
+          }
           setState(() {
             searchResults = results
                 .map((json) => Store.fromJson(json))
@@ -100,12 +118,15 @@ class _HomepageState extends State<Homepage> {
           });
         } else {
           debugPrint('VWORLD 응답에 주소 결과가 없습니다.');
+          setState(() => searchResults = []);
         }
       } else {
         debugPrint('VWORLD API 실패: ${res.statusCode}');
+        setState(() => searchResults = []);
       }
     } catch (e) {
       debugPrint('위치 기반 검색 오류: $e');
+      setState(() => searchResults = []);
     }
   }
 
